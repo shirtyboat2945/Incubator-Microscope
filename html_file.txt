@@ -1,0 +1,603 @@
+
+const char WEB_SITE[] PROGMEM = R"=====(
+
+<!DOCTYPE html>
+<html lang="en" class="js-focus-visible">
+
+<title>Incubator Microscope</title>
+  <style>
+
+    #title {
+      float: left;
+      padding-left: 1.2%;
+      height: 25px;
+      line-height: 50px;
+      font-family: "Verdana";
+      font-size: 50px;
+      font-weight: bold;
+    }
+
+    .navbar {
+      width: 100%;
+      height: 50px;
+      margin: 0;
+      padding: 10px 0px;
+      background-color: #B6CCB9;
+      color: black;
+      border-bottom: 8px solid #244728;
+    }
+
+    .fixed-top {
+      position: fixed;
+      top: 0;
+      right: 0;
+      left: 0;
+      z-index: 1;
+    }
+
+    #freqLabel {
+      position: absolute;
+      top: 11.5%;
+      left: 1%;
+      font-weight: bold;
+    }
+
+    #frequency {
+      position: absolute;
+      top: 11.5%;
+      left: 14.7%;
+    }
+
+    span.border {
+      position: absolute;
+      top: 9.8%;
+      right: 3.5%;
+      display: inline;
+      width: 435px;
+      height: 70px;
+      border: 8px solid #244728;  
+      background-color: none; 
+    }
+
+    #incubator {
+      position: absolute;
+      top: 12%;
+      right: 17%;
+      font-family: "Verdana";
+      font-size: 44px;
+      transform: scale(0.5, 1);
+    }
+
+    #sensor1 {
+      position: absolute;
+      top: 11.5%;
+      right: 8%;
+    }
+
+    #temperature {
+      position: absolute;
+      top: 11.5%;
+      right: 4.6%;
+    }
+
+    #timeLabel {
+      position: absolute;
+      top: 15.5%;
+      left: 1%;
+      font-weight: bold;
+    }
+
+    #time {
+      position: absolute;
+      top: 15.5%;
+      left: 12.3%;
+    }
+
+    #toggleButton {
+      position: absolute;
+      top: 16%;
+      right: 20.7%;
+    }
+
+    #sensor2 {
+      position: absolute;
+      top: 15.5%;
+      right: 8.2%;
+    }
+
+    #air {
+      position: absolute;
+      top: 15.5%;
+      right: 4.6%;
+    }
+
+    #projectNameLabel {
+      position: absolute;
+      top: 19.5%;
+      left: 1%;
+      font-weight: bold;
+    }
+
+    #projectName {
+      position: absolute;
+      top: 19.5%;
+      left: 7.9%;
+    }
+
+    #paramButton {
+      position: absolute;
+      top: 19.5%;
+      left: 19.7%;
+    }
+
+    #countLabel {
+      position: absolute;
+      top: 23.3%;
+      left: 3.5%;
+    }
+
+    #imageCount {
+      position: absolute;
+      top: 23.3%;
+      left: 19%;
+    }
+
+    #timer {
+      position: absolute;
+      left: 25.5%;
+      top: 24.3%;
+      font-size; 24px;
+      font-family: "Verdana";
+    }
+
+    #downloadLabel {
+      position: absolute;
+      top: 23.3%;
+      right: 26%;
+    }
+
+    #download {
+      position: absolute;
+      top: 23.7%;
+      right: 14.3%;
+    }
+
+    #downloadButton {
+      position: absolute;
+      top: 23.4%;
+      right: 3.5%;
+    }
+
+    #latestImage {
+      left: 3.5%;
+    }
+
+    #view {
+      right: 3.5%;
+    }
+
+    #latestImageLabel {
+      position: absolute;
+      bottom: 3%;
+      left: 3.4%;
+    }
+    
+    #displayButton {
+      position: absolute;
+      bottom: 3%;
+      left: 25.5%;
+    }
+
+    #toggleSensorButton {
+      position: absolute;
+      bottom: 3.1%;
+      left: 35.5%;
+    }
+
+    #viewLabel {
+      position: absolute;
+      right: 35.7%;
+      bottom: 3%;
+    }
+
+    #viewButton {
+      position: absolute;
+      bottom: 3%;
+      right: 26.3%;
+    }
+
+    #shutdownButton {
+      position: absolute;
+      z-index: 3;
+      bottom: 2.2%;
+      right: 3.5%;
+      padding: 5px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #BB0000;
+      background-color: white;
+      border: 3px solid #BB0000;
+      border-radius: 10px;
+      transition: 0.3s;
+    }
+
+    #shutdownButton:hover {
+      color: #BB0000;
+      background-color: #E1D300;
+    }
+
+    .labels {
+      font-family: "Verdana";
+      font-size: 24px;
+    }
+
+    .images {
+      position: fixed;
+      bottom: 7.5%;
+      border-radius: 10px;
+      font-family: "Verdana";
+      font-size: 12px;
+    }
+
+    .sensors {
+      font-family: "Verdana";
+      font-size: 20px;
+    }
+
+    .fields {
+      border-radius: 8px;
+      font-size: 16px;
+    }
+    
+    .buttons {
+      color: #244728;
+      font-size: 16px;
+      background-color: white;
+      border: 2px solid #244728;
+      border-radius: 8px;
+      transition: 0.3s;
+    }
+
+    .buttons:hover {
+      color: black;
+      background-color: #B6CCB9;
+    }
+  </style>
+
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <body style="background-color:#F8F8F8">
+    <header>
+      <div class="navbar fixed-top">
+          <div>
+            <div id="title">Incubator Microscope Controller</div>
+          </div>
+      </div>
+    </header>
+    <br>
+      <label id="freqLabel">Imaging frequency [1-60 /h]</label>
+      <input type="number" class="fields" id="frequency" name="frequency" value="1" min="1" max="60">
+
+      <b id="incubator">INCUBATOR</b>
+
+    <span class="border"></span>
+      <label class="sensors" id="sensor1">Temperature [&#8451;]:</label>
+      <span id="temperature" class="sensors"><b>--</b></span>
+    <br>
+      <label id="timeLabel">Sequence time [1-72 h]</label>
+      <input type="number" class="fields" id="time" name="time" value="1" min="1" max="86400">
+
+      <label class="sensors" id="sensor2">Air humidity [%]:</label>
+      <span id="air" class="sensors"><b>--</b></span>
+    <br>
+      <label class="labels" id="countLabel">Images captured:</label>
+      <span id="imageCount" class="labels"><b>--/--</b></span>
+
+      <label id="projectNameLabel">Project name</label>
+      <input type="text" class="fields" id="projectName" name="projectName" placeholder="Enter project name" size="15" maxlength="20">
+
+      <button type="button" onclick="buttonPress()" class="buttons" id="paramButton">Submit and start &#8683;</button>
+
+      <label class="labels" id="downloadLabel">Image download selection</label>
+      <input type="text" class="fields" id="download" name="download" placeholder="Enter image file name" size="15" maxlength="20">
+      <button type="button" onclick="downloadImage()" class="buttons" id="downloadButton">Download image &#x2B73;</button>
+    <br>
+      <div id="timer"></div>
+      <img class="images" id="latestImage" src="https://placehold.jp/640x480.png" alt="Latest image" width="640" height="480">
+      <img class="images" id="view" src="https://placehold.jp/640x480.png" alt="Latest view" width="640" height="480">
+    <br>
+      <label class="labels" id="latestImageLabel"><b>Latest sequence image</b></label>
+      <button type="button" class="buttons" id="displayButton">Update image &#10226;</button>
+
+      <button type="button" class="buttons" id="toggleSensorButton" onclick="toggleSensor()">Bright-field</button>
+
+      <label class="labels" id="viewLabel"><b>Current view</b></label>
+      <button type="button" class="buttons" id="viewButton">Update view &#10226;</button>
+
+      <button type="button" onclick="shutdown()" id="shutdownButton">Shutdown microscope &#9212;</button>
+  </body>
+
+  <script type = "text/javascript">
+  
+    var xmlHttp = createXmlHttpObject();
+
+    var duration;
+    var noOfImages;
+    var imagesToCapture;
+    var counting = true;
+    var isBrightfield = true;
+    document.getElementById("displayButton").disabled = true;
+
+    function createXmlHttpObject() {
+      if(window.XMLHttpRequest){
+        xmlHttp = new XMLHttpRequest();
+      }
+      else {
+        xmlHttp = new ActiveXObject("Microsoft.XMLHTTP");
+      }
+      return xmlHttp;
+    }
+
+    function buttonPress() {
+      if(!counting) {
+        return;
+      }
+      var frequency = document.getElementById("frequency").value;
+      var time = document.getElementById("time").value;
+      var name = document.getElementById("projectName").value;
+      var paramButton = document.getElementById("paramButton");
+
+      if(frequency < 1 || time < 1 || name == "") {
+        alert("ERROR: invalid parameter values");
+        return;
+      }
+
+      duration = 60 / frequency; // 60 for minutes, 3600 for hours
+      var xhttp = new XMLHttpRequest();
+      var params = "hertz=" + frequency + "&time=" + time + "&name=" + name;
+
+      xhttp.onreadystatechange = function() {
+        if(this.readyState == 4 && this.status == 200) {
+          if(counting) {
+            startTimerAndImageCount();
+          }
+          paramButton.disabled = true;
+          document.getElementById("paramButton").style.backgroundColor = "#B6CCB9";
+        }
+        else if(xhttp.status === 404) {
+          alert("ERROR: filename already exists");
+          return;
+        }
+      };
+      xhttp.open("POST", "/sendParams", true);
+      xhttp.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      xhttp.send(params);
+    }
+
+    function startTimerAndImageCount() {
+      if(counting) {
+        updateImageCount(); // Update the image count once at the beginning
+      }
+
+      setInterval(function() {
+        if(counting) {
+          updateImageCount();
+        }
+        else {
+          return;
+        }
+        startTimer(duration); // Start the timer with the adjusted duration
+      }, duration * 1000);
+
+      if(counting) {
+        startTimer(duration); // Start the initial timer
+      }
+      else {
+        return;
+      }
+    }
+
+    function startTimer(duration) {
+      var timer = duration - 1; // initial calibration of the timer to match the frequency with the image capture frequency
+      var timerContent = document.getElementById('timer');
+
+      countdown = setInterval(function () {
+        var minutes = Math.floor(timer / 60);
+        var seconds = timer % 60;
+
+        timerContent.textContent = 'Next image: ' + minutes + ' min ' + seconds + ' s';
+
+        if(--timer == 0) {
+          timer = duration; // restart the timer
+        }
+      }, 1000);
+    }
+
+    function updateImageCount() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if(!counting) {
+          return;
+        }
+
+        if(xhr.readyState === 4 && xhr.status === 200) {
+          var data = JSON.parse(xhr.responseText);
+          noOfImages = data.noOfImages;
+          imagesToCapture = data.imagesToCapture;
+          if(noOfImages > 0) {
+            document.getElementById("displayButton").disabled = false;
+          }
+
+          if(noOfImages == imagesToCapture - 1) {
+            noOfImages = imagesToCapture - 1;
+            document.getElementById("imageCount").innerText = noOfImages + "/" + imagesToCapture;
+            setTimeout(function() {
+              
+              clearInterval(countdown); // Stop the countdown timer
+              document.getElementById("timer").style.display = "none"; // Hide the timer display
+              document.getElementById("imageCount").innerText = imagesToCapture + "/" + imagesToCapture;
+              counting = false;
+              alert("Camera sequence completed");
+            }, duration * 1000);
+          }
+          else {
+            document.getElementById("imageCount").innerText = noOfImages + "/" + imagesToCapture;
+          }
+        }
+      };
+      xhr.open("GET", "/imageCount", true);
+      xhr.send();
+    }
+
+    document.getElementById("displayButton").addEventListener("click", function() {
+      var xhr = new XMLHttpRequest();
+      var displayButton = document.getElementById("displayButton");
+
+      xhr.onreadystatechange = function() {
+        if(xhr.readyState === 4 && xhr.status === 200) {
+          var timestamp = new Date().getTime();
+          var latestImageUrl = "/latestImage?" + timestamp;
+          document.getElementById("latestImage").src = latestImageUrl;
+        }
+        else if(xhr.status === 404) {
+          alert("ERROR: start the camera sequence before updating the image");
+          return;
+        }
+      };
+      xhr.open("GET", "/latestImage", true);
+      xhr.send();
+    });
+
+    document.getElementById("viewButton").addEventListener("click", function() {
+      var xhr = new XMLHttpRequest();
+      var viewButton = document.getElementById("viewButton");
+      viewButton.disabled = true;
+
+      xhr.onreadystatechange = function() {
+        if(xhr.readyState === 4 && xhr.status === 200) {
+          var timestamp = new Date().getTime();
+          var viewUrl = "/viewImage?" + timestamp;
+          document.getElementById("view").src = viewUrl;
+          viewButton.disabled = false;
+        }
+        else if(xhr.status === 404) {
+          alert("ERROR: capture already in progress");
+          return;
+        }
+      };
+      xhr.open("GET", "/viewImage", true);
+      xhr.send();
+    });
+  
+    function toggleSensor() {
+      var toggle;
+
+      if(isBrightfield) {
+        toggle = 0; // 0 sets to fluorescence
+      }
+      else {
+        toggle = 1; // 1 sets to brightfield
+      }
+      isBrightfield = !isBrightfield;
+      var xhr = new XMLHttpRequest();
+
+      xhr.onreadystatechange = function() {
+        if(xhr.readyState === 4 && xhr.status === 200) {
+          if(isBrightfield) {
+            document.getElementById("toggleSensorButton").innerText = "Brightfield";
+          }
+          else {
+            document.getElementById("toggleSensorButton").innerText = "Fluorescence";
+          }
+        }
+        else if(xhr.status === 404) {
+          alert("ERROR: failed to toggle sensor");
+          return;
+        }
+      };
+      xhr.open("POST", "/toggleSensor", true);
+      xhr.setRequestHeader("Content-type", "application/x-www-form-urlencoded");
+      xhr.send("toggle=" + toggle);
+    }
+
+    function downloadImage() {
+      var downloadImage = document.getElementById("download").value; // Get the selected image filename
+
+      if(downloadImage === "") {
+        alert("Please enter a filename");
+        return;
+      }
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", "/downloadImage", true);
+      xhr.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+      xhr.responseType = "blob"; // Set response type to blob
+
+      xhr.onreadystatechange = function () {
+        if(xhr.readyState === XMLHttpRequest.DONE) {
+          if(xhr.status === 200) {
+            var blob = new Blob([xhr.response], { type: "image/jpeg" }); // Create a blob from the response
+        
+            var link = document.createElement("a");
+            link.href = window.URL.createObjectURL(blob);
+            link.download = downloadImage + ".jpg"; // Set download attribute to specify file name
+            link.click(); // Simulate click to trigger download
+          }
+          else if(xhr.status === 404) {
+            alert("ERROR: no such file exists");
+          }
+        }
+      };
+      xhr.send("filename=" + downloadImage);
+    }
+    
+    function fetchSensorData() {
+      var xhr = new XMLHttpRequest();
+      xhr.onreadystatechange = function() {
+        if(xhr.readyState === XMLHttpRequest.DONE) {
+          if(xhr.status === 200) {
+            var data = JSON.parse(xhr.responseText);
+            document.getElementById("temperature").innerText = data.temperature.toFixed(1);
+            document.getElementById("air").innerText = data.airHumidity.toFixed(1);
+          }
+          else {
+            console.error("ERROR: failed to fetch sensor data");
+          }
+        }
+      };
+      xhr.open("GET", "/sensorData", true);
+      xhr.send();
+    }
+    fetchSensorData();
+    setInterval(fetchSensorData, 20000); // Update every 10 seconds
+
+    function shutdown() {
+      var xhr = new XMLHttpRequest();
+
+      var shutdownButton = document.getElementById("shutdownButton");
+      shutdownButton.disabled = true;
+      document.getElementById("shutdownButton").style.color = "#BB0000";
+      document.getElementById("shutdownButton").style.backgroundColor = "#E1D300";
+
+      if(counting) {
+        clearInterval(countdown); // Stop the countdown timer
+        document.getElementById("timer").style.display = "none"; // Hide the timer display
+        counting = false;
+      }
+
+      xhr.onreadystatechange = function() {
+        if(xhr.readyState === 4 && xhr.status === 200) {
+          alert("Shutting down microscope");
+        }
+        else if(xhr.status === 404) {
+          shutdownButton.disabled = false;
+          document.getElementById("shutdownButton").style.backgroundColor = "white";
+          alert("ERROR: failed to shutdown the microscope");
+          return;
+        }
+      };
+      xhr.open("GET", "/shutdown", true);
+      xhr.send();
+    }
+    
+  </script>
+</html>
+)=====";

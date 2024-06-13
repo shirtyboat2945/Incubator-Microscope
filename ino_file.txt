@@ -1,0 +1,542 @@
+
+// Libraries
+#include <WiFi.h>
+#include <WebServer.h>
+#include "microscope_css.h"
+#include "esp_camera.h"
+#include "FS.h"
+#include "SD_MMC.h"
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+#include "driver/rtc_io.h"
+#include <EEPROM.h>
+#include <ArduinoJson.h>
+#include <DHT.h>
+
+#include "esp_http_server.h"
+#include "esp_timer.h"
+#include "img_converters.h"
+#include "fb_gfx.h"
+#include "driver/ledc.h"
+#include "sdkconfig.h"
+
+#define USE_INTRANET // comment out to use access point
+
+#define LOCAL_SSID "biocam"
+#define LOCAL_PASS "a0a1a2a3a4"
+
+#define AP_SSID "biocam_AP"
+#define AP_PASS "biopoint"
+
+#define PWDN_GPIO_NUM     32
+#define RESET_GPIO_NUM    -1
+#define XCLK_GPIO_NUM      0
+#define SIOD_GPIO_NUM     26
+#define SIOC_GPIO_NUM     27
+#define Y9_GPIO_NUM       35
+#define Y8_GPIO_NUM       34
+#define Y7_GPIO_NUM       39
+#define Y6_GPIO_NUM       36
+#define Y5_GPIO_NUM       21
+#define Y4_GPIO_NUM       19
+#define Y3_GPIO_NUM       18
+#define Y2_GPIO_NUM        5
+#define VSYNC_GPIO_NUM    25
+#define HREF_GPIO_NUM     23
+#define PCLK_GPIO_NUM     22
+
+#define EEPROM_SIZE 17
+
+#define BRIGHTFIELD_PIN 4
+#define FLUORESCENCE_PIN 12
+
+#define XCLK_PIN XCLK_GPIO_NUM  // Adjust to your specific XCLK pin
+
+#define DHT_PIN 3     // Pin connected to the DHT sensor
+#define DHT_TYPE DHT11   // Type of the DHT sensor
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+// global variables
+camera_config_t config;
+camera_fb_t * fb;
+int imageNumber = 0; // image number on SD card
+int noOfImages = 0; // images taken during a sequence
+int imagesToCapture;
+int interval; // to be measured in hours [h]
+String projectName = "";
+unsigned long previousMillis = 0;
+bool cameraInit = false;
+bool saveToCard = false;
+bool takeImages = true;
+bool isBrightfield = false;
+int lastTemperature = 37;
+int lastHumidity = 30;
+String sequencePath = "";
+bool sequenceImage = false;
+
+WebServer server(80);
+
+char XML[2048];
+char buf[32];
+
+IPAddress actualIP;
+
+void initCamera() {
+  if(psramFound()) {
+    config.frame_size = FRAMESIZE_UXGA; // maximal resolution at 1600 x 1200
+    config.jpeg_quality = 10;
+    config.fb_count = 2;
+  }
+  else {
+    config.frame_size = FRAMESIZE_SVGA;
+    config.jpeg_quality = 12;
+    config.fb_count = 1;
+  }
+
+  esp_err_t err = esp_camera_init(&config);
+  if(err != ESP_OK) {
+    Serial.printf("ERROR: Camera init failed with error 0x%x\n", err);
+    return;
+  }
+}
+
+void toggleSensor() {
+  String message = server.arg("toggle");
+
+  if(message.length() == 0) {
+    server.send(404, "text/plain", "Toggle parameter missing");
+    return;
+  }
+  int toggleMessage = message.toInt();
+
+  if(toggleMessage != 0 && toggleMessage != 1) {
+    server.send(404, "text/plain", "Invalid toggle parameter");
+    return;
+  }
+
+  if(toggleMessage == 0) {
+    setFluorescence();
+  }
+  else if(toggleMessage == 1) {
+    setBrightfield();
+  }
+  
+  else {
+    server.send(404, "text/plain", "Invalid toggle value");
+    return;
+  }
+  server.send(200, "text/plain", "Toggle successful");
+}
+
+void setFluorescence() {
+  sensor_t *s = esp_camera_sensor_get();
+    s->set_exposure_ctrl(s, 0); // auto-exposure, 0 to disable, 1 to enable
+    s->set_aec_value(s, 1200); // automatic exposure control, 0 to 1200
+    s->set_gain_ctrl(s, 0); // gain, 1 to enable
+    s->set_whitebal(s, 0); // white balance, 1 to enable
+    s->set_saturation(s, 0); // saturation, 1 to enable
+    s->set_lenc(s, 0);
+
+    uint32_t newXCLK = 1000000;
+
+    setXCLK(newXCLK); // Set the XCLK frequency to 1 MHz
+
+    s->set_reg(s, 0xff, 0xff, 0x01);
+    s->set_reg(s, 0x2e, 0xff, 125);
+
+    isBrightfield = false;
+    Serial.println("Fluorescence");
+}
+
+void setBrightfield() {
+  sensor_t *s = esp_camera_sensor_get();
+    s->set_exposure_ctrl(s, 1);
+    s->set_aec_value(s, 0); // automatic exposure control, 0 to 1200
+    s->set_gain_ctrl(s, 1);
+    s->set_whitebal(s, 1);
+    s->set_saturation(s, 1);
+    s->set_lenc(s, 1);
+
+
+    uint32_t newXCLK = 20000000;
+
+    setXCLK(newXCLK); // Set the XCLK frequency to 20 MHz
+
+    s->set_reg(s, 0xff, 0xff, 0x01);
+    s->set_reg(s, 0x2e, 0xff, 0);
+
+    isBrightfield = true;
+    Serial.println("Brightfield");
+}
+
+void setXCLK(uint32_t newXCLK) {
+  ledc_timer_config_t ledc_timer = {
+        .speed_mode = LEDC_HIGH_SPEED_MODE,
+        .duty_resolution = LEDC_TIMER_1_BIT, // Adjust as needed
+        .timer_num = LEDC_TIMER_0,
+        .freq_hz = newXCLK, // Set a lower frequency
+        .clk_cfg = LEDC_AUTO_CLK
+    };
+    ledc_timer_config(&ledc_timer);
+    
+    if(ledc_timer_config(&ledc_timer) != ESP_OK) {
+      Serial.println("Failed to configure LEDC timer");
+    }
+    else {
+      Serial.println("LEDC timer configured successfully");
+    }
+
+    ledc_channel_config_t ledc_channel = {
+        .gpio_num = XCLK_PIN,          // Ensure gpio_num is the first field
+        .speed_mode = LEDC_HIGH_SPEED_MODE,
+        .channel = LEDC_CHANNEL_0,
+        .intr_type = LEDC_INTR_DISABLE,
+        .timer_sel = LEDC_TIMER_0,
+        .duty = 1,
+        .hpoint = 0
+    };
+    Serial.printf("XCLK: %u\n", ledc_timer.freq_hz);
+}
+
+void initCard() {
+  if(!SD_MMC.begin("/sdcard", true)) { // 1-bit mode
+    Serial.println("ERROR: SD Card Mount Failed");
+    return;
+  }
+ 
+  uint8_t cardType = SD_MMC.cardType();
+  if(cardType == CARD_NONE) {
+    Serial.println("ERROR: No SD Card attached");
+    return;
+  }
+}
+
+void initCameraSequence() {
+  saveToCard = true; // flag to save to Sd card for image sequence, false for update view
+
+  if(noOfImages < imagesToCapture && takeImages == true) {
+    captureImage();
+    if(noOfImages < imagesToCapture) {
+      Serial.printf("Preparing image number %d...\n- - - - - - - - - -\n", noOfImages+1);
+    }
+    else {
+      takeImages = false;
+    }
+  }
+}
+
+void captureImage() {
+  if(!takeImages) {
+    return;
+  }
+  
+  fb = esp_camera_fb_get();
+  delay(100);
+  if(!fb) {
+    Serial.println("ERROR: Camera capture failed");
+    return;
+  }
+  esp_camera_fb_return(fb); // Clear camera buffer before capturing new image
+
+  if(isBrightfield) {
+    digitalWrite(BRIGHTFIELD_PIN, HIGH);
+    delay(1000);
+  }
+  else {
+    digitalWrite(FLUORESCENCE_PIN, HIGH);
+    delay(3000);
+  }
+
+  fb = esp_camera_fb_get(); // Get a new framebuffer after clearing
+  delay(100);
+
+  if(!fb) {
+    if(isBrightfield) {
+      digitalWrite(BRIGHTFIELD_PIN, LOW);
+    }
+    else {
+      digitalWrite(FLUORESCENCE_PIN, LOW);
+    }
+    Serial.println("ERROR: Camera capture failed after clearing buffer");
+    return;
+  }
+
+  esp_camera_fb_return(fb);
+  delay(100);
+
+  if(isBrightfield) {
+    digitalWrite(BRIGHTFIELD_PIN, LOW);
+  }
+  else {
+    digitalWrite(FLUORESCENCE_PIN, LOW);
+  }
+
+  if(!saveToCard) {
+    displayImage();
+  }
+  else {
+    saveImage();
+  }
+  saveToCard = false;
+}
+
+void saveImage() {
+  EEPROM.begin(EEPROM_SIZE);
+  imageNumber = EEPROM.read(0) + 1;
+  sequencePath = "/" + projectName + "_" + String(noOfImages+1) + ".jpg"; // imageNumber
+  
+  fs::FS &fs = SD_MMC; 
+  Serial.printf("Sequence image number: %d\nImage file name: %s\n", noOfImages+1, sequencePath.c_str());
+
+  File file = fs.open(sequencePath.c_str(), FILE_WRITE);
+  if(!file) {
+    Serial.println("ERROR: Failed to open file in writing mode");
+    return;
+  }
+  if(fb) {
+    file.write(fb->buf, fb->len);
+    file.close();
+    EEPROM.write(0, imageNumber); // Update imageNumber in EEPROM
+    EEPROM.commit();
+    noOfImages++;
+    Serial.printf("Image transfer complete!\n");
+  }
+  else {
+    Serial.println("ERROR: Framebuffer is not valid");
+  }
+}
+
+void displaySequence() {
+  sequenceImage = true;
+  displayImage();
+  sequenceImage = false;
+}
+
+void displayImage() {
+  if(sequenceImage) {
+    File file = SD_MMC.open(sequencePath);
+    if(file) {
+      server.streamFile(file, "image/jpeg");
+      file.close();
+    }
+    else {
+      Serial.println("ERROR: Failed to open file on SD card");
+    }
+  }
+  else {
+    server.setContentLength(fb->len); // Set content length for proper handling
+    server.send(200, "image/jpeg", ""); // Send response header with image/jpeg content type
+    server.client().write(fb->buf, fb->len); // Send image data directly to client
+  }
+}
+
+void downloadImage() {
+  String imageToDownload = server.arg("filename");
+  String filePath = "/" + imageToDownload + ".jpg";
+
+  if(SD_MMC.exists(filePath)) {
+    File file = SD_MMC.open(filePath, FILE_READ);
+
+    Serial.print("File size: ");
+    Serial.println(file.size());  // Log file size
+    
+    server.sendHeader("Content-Disposition", "attachment; filename=" + filePath);
+    server.sendHeader("Content-Type", "image/jpeg");
+    server.sendHeader("Connection", "close");
+    server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate");
+    server.sendHeader("Pragma", "no-cache");
+    server.sendHeader("Expires", "-1");
+    server.streamFile(file, "image/jpeg");
+
+    file.close();
+  }
+  else {
+    server.send(404, "text/plain", "Image not found");
+  }
+}
+
+void sensorData() {
+  float temperature = dht.readTemperature();
+  float airHumidity = dht.readHumidity();
+  
+  if(isnan(temperature) || isnan(airHumidity)) {
+    Serial.println("ERROR: Could not read sensor data");
+    server.send(500, "text/plain", "Error reading sensor data.");
+    return;
+  }
+  
+  if(temperature < 0 || temperature > 50) {
+    temperature = lastTemperature;
+  }
+  if(airHumidity < 20 || airHumidity > 90) {
+    airHumidity = lastHumidity;
+  }
+
+  lastTemperature = temperature;
+  lastHumidity = airHumidity;
+  
+  StaticJsonDocument<100> jsonDoc; // Adjust the size as needed
+  jsonDoc["temperature"] = temperature;
+  jsonDoc["airHumidity"] = airHumidity;
+
+  String jsonString; 
+  serializeJson(jsonDoc, jsonString); // Serialize the JSON object to a string
+
+  server.send(200, "application/json", jsonString); // Send the JSON response
+}
+
+void handleImageCount() {
+  String jsonStr = "{\"noOfImages\":" + String(noOfImages) + ",\"imagesToCapture\":" + String(imagesToCapture) + "}";
+  server.send(200, "application/json", jsonStr);
+}
+
+void setup() {
+
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+  Serial.begin(115200);
+
+  #ifdef USE_INTRANET
+    WiFi.begin(LOCAL_SSID, LOCAL_PASS);
+    while(WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      Serial.print(".");
+    }
+    actualIP = WiFi.localIP();
+    Serial.print(" http://");
+    Serial.println(actualIP);
+  #else
+    WiFi.softAP(AP_SSID, AP_PASS);
+    WiFi.softAPConfig(IPAddress(192, 168, 1, 1), IPAddress(192, 168, 1, 1), IPAddress(255, 255, 255, 0));
+    delay(200);
+    actualIP = WiFi.softAPIP();
+    Serial.print("Access Point IP address: http://");
+    Serial.print(actualIP);
+    Serial.println("");
+  #endif
+
+  delay(1000);
+
+  server.on("/", HTTP_GET, startWebsite);
+  server.on("/xml", HTTP_GET, sendXML);
+  server.on("/sendParams", initButton);
+  server.on("/latestImage", HTTP_GET, displaySequence);
+  server.on("/viewImage", HTTP_GET, captureImage);
+  server.on("/imageCount", HTTP_GET, handleImageCount);
+  server.on("/downloadImage", downloadImage);
+  server.on("/sensorData", HTTP_GET, sensorData);
+  server.on("/toggleSensor", toggleSensor);
+  server.on("/shutdown", HTTP_GET, shutdown);
+
+  server.begin();
+  delay(1000);
+
+  config.ledc_channel = LEDC_CHANNEL_0;
+  config.ledc_timer = LEDC_TIMER_0;
+  config.pin_d0 = Y2_GPIO_NUM;
+  config.pin_d1 = Y3_GPIO_NUM;
+  config.pin_d2 = Y4_GPIO_NUM;
+  config.pin_d3 = Y5_GPIO_NUM;
+  config.pin_d4 = Y6_GPIO_NUM;
+  config.pin_d5 = Y7_GPIO_NUM;
+  config.pin_d6 = Y8_GPIO_NUM;
+  config.pin_d7 = Y9_GPIO_NUM;
+  config.pin_xclk = XCLK_GPIO_NUM;
+  config.pin_pclk = PCLK_GPIO_NUM;
+  config.pin_vsync = VSYNC_GPIO_NUM;
+  config.pin_href = HREF_GPIO_NUM;
+  config.pin_sscb_sda = SIOD_GPIO_NUM;
+  config.pin_sscb_scl = SIOC_GPIO_NUM;
+  config.pin_pwdn = PWDN_GPIO_NUM;
+  config.pin_reset = -1;
+  config.xclk_freq_hz = 20000000;
+  config.pixel_format = PIXFORMAT_JPEG;
+  
+  pinMode(BRIGHTFIELD_PIN, OUTPUT);
+  pinMode(FLUORESCENCE_PIN, OUTPUT);
+
+  initCamera();
+  initCard();
+  setBrightfield();
+}
+
+void loop() {
+
+  server.handleClient();
+
+  unsigned long currentMillis = millis();
+
+  if(currentMillis - previousMillis >= interval) {
+    previousMillis = currentMillis;
+    
+    if(cameraInit) {
+      initCameraSequence(); // start camera sequence
+    }
+  }
+}
+
+void initButton() {
+  String hertz = server.arg("hertz");
+  String time = server.arg("time");
+  projectName = server.arg("name");
+
+  if(!SD_MMC.exists("/" + projectName + ".txt")) {
+    cameraInit = true; // allows initiation of camera
+
+    int frequency = hertz.toInt(); // converts received String into an int
+    int sequenceTime = time.toInt(); // converts received String into an int
+    int seconds;
+
+    imagesToCapture = frequency * sequenceTime; // calculates number of images to capture
+    interval = 60000 / frequency; // calculates time between image captures
+    seconds = interval / 1000;
+
+    String fileName = "/" + projectName + ".txt";
+    File projectFile = SD_MMC.open(fileName.c_str(), FILE_WRITE);
+    
+    if(projectFile) {
+      projectFile.printf("Project name:             %s\n", projectName.c_str()); // Convert String to const char* for printf
+      projectFile.printf("Frequency [/h]:          %d\n", frequency);
+      projectFile.printf("Sequence time [h]:    %d\n", sequenceTime);
+      projectFile.printf("Images to capture:     %d\n", imagesToCapture);
+      projectFile.printf("Image interval [s]:      %d\n", seconds);
+      
+      projectFile.close(); // Close the file
+      Serial.println("Data written to SD card");
+    }
+    else {
+      Serial.println("ERROR: failed creating data file");
+    }
+    // print camera parameters
+    Serial.printf("Project name:        %s\n", projectName);
+    Serial.printf("Frequency [/h]:      %d\n", frequency);
+    Serial.printf("Sequence time [h]:   %d\n", sequenceTime);
+    Serial.printf("Images to capture:   %d\n", imagesToCapture);
+    Serial.printf("Image interval [s]:  %d\n", seconds);
+    
+    Serial.println("Starting camera sequence...\n");
+    server.send(200, "text/plain", "Button pressed");
+  }
+  else {
+    Serial.println("ERROR: Filename already exists!");
+    server.send(404, "text/plain", "Bad Request: Missing parameters");
+  }
+  dht.begin();
+}
+
+void startWebsite() {
+  Serial.println("Connected to website\n");
+  server.send(200, "text/html", WEB_SITE); // sends the html website
+}
+
+void sendXML() {
+  String xmlData = "<?xml version='1.0'?><Data></Data>";
+  server.send(200, "text/xml", xmlData);
+}
+
+void shutdown() {
+  delay(500);
+  takeImages = false;
+  Serial.println("Shutting down\n");
+  esp_deep_sleep_start();
+}
